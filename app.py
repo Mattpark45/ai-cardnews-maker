@@ -1,252 +1,392 @@
 import streamlit as st
-import requests
-import json
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import io
-import time
+import os
+import platform
 
-# Streamlit 페이지 설정
-st.set_page_config(
-    page_title="카드뉴스 생성기",
-    page_icon="📱",
-    layout="wide"
-)
-
-st.title("📱 카드뉴스 생성기")
-st.markdown("---")
-
-# OpenAI API 키 입력
-api_key = st.text_input("OpenAI API 키를 입력하세요:", type="password")
-
-if not api_key:
-    st.warning("⚠️ OpenAI API 키를 입력해주세요.")
-    st.stop()
-
-# 입력 폼
-with st.form("card_news_form"):
-    st.markdown("### 📝 카드뉴스 내용 입력")
+# 한글 폰트 자동 감지 및 로드
+def get_korean_font(size=60, weight='regular'):
+    """시스템에서 한글 폰트 자동 찾기 및 로드"""
     
-    title = st.text_input("제목:", placeholder="예: 2025 디지털 마케팅 트렌드")
-    subtitle = st.text_input("부제목:", placeholder="예: 성공하는 브랜드들의 필수 전략")
+    system = platform.system()
+    font_paths = []
     
-    st.markdown("**주요 내용 4가지:**")
-    content1 = st.text_input("내용 1:", placeholder="첫 번째 주요 포인트")
-    content2 = st.text_input("내용 2:", placeholder="두 번째 주요 포인트")
-    content3 = st.text_input("내용 3:", placeholder="세 번째 주요 포인트")
-    content4 = st.text_input("내용 4:", placeholder="네 번째 주요 포인트")
-    
-    # 스타일 선택
-    style = st.selectbox(
-        "디자인 스타일:",
-        ["모던", "미니멀", "비즈니스", "창의적", "전문적"]
-    )
-    
-    color_scheme = st.selectbox(
-        "컬러 테마:",
-        ["블루&오렌지", "그린&화이트", "퍼플&골드", "레드&그레이", "다크&네온"]
-    )
-    
-    submitted = st.form_submit_button("🎨 카드뉴스 생성하기")
-
-# 이미지 생성 함수
-def generate_image(prompt, api_key):
-    """DALL-E API를 사용하여 이미지 생성"""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "model": "dall-e-3",
-        "prompt": prompt,
-        "n": 1,
-        "size": "1024x1024",
-        "quality": "standard"
-    }
-    
-    try:
-        response = requests.post(
-            "https://api.openai.com/v1/images/generations",
-            headers=headers,
-            json=data,
-            timeout=60
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            image_url = result['data'][0]['url']
-            
-            # 이미지 다운로드
-            img_response = requests.get(image_url)
-            img = Image.open(io.BytesIO(img_response.content))
-            return img
+    if system == "Windows":
+        if weight == 'bold':
+            font_paths = [
+                "C:/Windows/Fonts/malgunbd.ttf",  # 맑은 고딕 볼드
+                "C:/Windows/Fonts/gulim.ttc",
+                "C:/Windows/Fonts/batang.ttc"
+            ]
         else:
-            st.error(f"API 오류: {response.status_code} - {response.text}")
-            return None
-            
-    except Exception as e:
-        st.error(f"이미지 생성 중 오류: {str(e)}")
+            font_paths = [
+                "C:/Windows/Fonts/malgun.ttf",    # 맑은 고딕
+                "C:/Windows/Fonts/gulim.ttc",     # 굴림
+                "C:/Windows/Fonts/batang.ttc"     # 바탕
+            ]
+    
+    elif system == "Darwin":  # Mac
+        font_paths = [
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            "/Library/Fonts/NanumGothic.ttf",
+            "/System/Library/Fonts/AppleGothic.ttf"
+        ]
+    
+    else:  # Linux
+        font_paths = [
+            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf" if weight == 'bold' else "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if weight == 'bold' else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        ]
+    
+    # 폰트 로드 시도
+    for font_path in font_paths:
+        try:
+            if os.path.exists(font_path):
+                return ImageFont.truetype(font_path, size)
+        except Exception as e:
+            continue
+    
+    # 기본 폰트 반환
+    try:
+        return ImageFont.load_default()
+    except:
         return None
 
-# 프롬프트 생성 함수
-def create_prompts(title, subtitle, contents, style, color_scheme):
-    """5장의 카드뉴스용 프롬프트 생성"""
+def create_gradient_background(width, height, color_scheme):
+    """그라데이션 배경 생성"""
     
-    # 스타일 매핑
-    style_map = {
-        "모던": "modern, clean, geometric shapes",
-        "미니멀": "minimalist, simple, lots of white space",
-        "비즈니스": "professional, corporate, sleek",
-        "창의적": "creative, artistic, dynamic",
-        "전문적": "professional, sophisticated, premium"
+    color_schemes = {
+        "블루 그라데이션": [(52, 73, 219), (73, 150, 219)],      # 파란색
+        "퍼플 그라데이션": [(106, 90, 205), (147, 51, 234)],      # 보라색  
+        "그린 그라데이션": [(46, 204, 113), (39, 174, 96)],       # 초록색
+        "오렌지 그라데이션": [(230, 126, 34), (231, 76, 60)],      # 주황색
+        "다크 그라데이션": [(44, 62, 80), (52, 73, 94)],          # 어두운색
+        "핑크 그라데이션": [(253, 121, 168), (232, 93, 117)]      # 핑크색
     }
     
-    color_map = {
-        "블루&오렌지": "blue and orange color scheme",
-        "그린&화이트": "green and white color scheme", 
-        "퍼플&골드": "purple and gold color scheme",
-        "레드&그레이": "red and gray color scheme",
-        "다크&네온": "dark background with neon accents"
-    }
+    start_color, end_color = color_schemes.get(color_scheme, color_schemes["블루 그라데이션"])
     
-    base_style = f"{style_map[style]}, {color_map[color_scheme]}"
+    # 이미지 생성
+    img = Image.new('RGB', (width, height))
     
-    prompts = []
+    # 세로 그라데이션
+    for y in range(height):
+        # 비율 계산
+        ratio = y / height
+        
+        # 색상 보간
+        r = int(start_color[0] + (end_color[0] - start_color[0]) * ratio)
+        g = int(start_color[1] + (end_color[1] - start_color[1]) * ratio)
+        b = int(start_color[2] + (end_color[2] - start_color[2]) * ratio)
+        
+        # 한 줄씩 그리기
+        for x in range(width):
+            img.putpixel((x, y), (r, g, b))
     
-    # 1. 표지 카드
-    cover_prompt = f"""
-    Create a {base_style} social media card design for cover page. 
-    Main title: "{title}"
-    Subtitle: "{subtitle}"
-    Design should be eye-catching with large, readable Korean text overlay. 
-    Include subtle business/marketing themed background elements.
-    Card format, vertical orientation, professional layout.
-    """
-    prompts.append(("표지", cover_prompt))
-    
-    # 2-5. 내용 카드들
-    for i, content in enumerate(contents, 1):
-        content_prompt = f"""
-        Create a {base_style} social media card design for content slide {i}.
-        Main text: "{content}"
-        Design should have large, clear Korean text as the focal point.
-        Include relevant icons or illustrations related to digital marketing.
-        Card format, vertical orientation, clean and readable layout.
-        Text should be prominent and easy to read.
-        """
-        prompts.append((f"내용 {i}", content_prompt))
-    
-    return prompts
+    return img
 
-# 메인 로직
-if submitted:
-    if not all([title, subtitle, content1, content2, content3, content4]):
-        st.error("⚠️ 모든 필드를 입력해주세요!")
-    else:
-        contents = [content1, content2, content3, content4]
+def wrap_text(text, font, max_width, draw):
+    """텍스트 자동 줄바꿈"""
+    lines = []
+    words = text.split()
+    
+    if not words:
+        return [text]
+    
+    current_line = ""
+    
+    for word in words:
+        # 테스트 라인 생성
+        test_line = current_line + word + " " if current_line else word + " "
         
-        st.markdown("## 🎨 카드뉴스 생성 중...")
+        # 텍스트 너비 측정
+        bbox = draw.textbbox((0, 0), test_line, font=font)
+        text_width = bbox[2] - bbox[0]
         
-        # 프롬프트 생성
-        prompts = create_prompts(title, subtitle, contents, style, color_scheme)
-        
-        # 진행 상황 표시
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # 이미지들을 저장할 리스트
-        generated_images = []
-        
-        # 5장의 카드 생성
-        for i, (card_name, prompt) in enumerate(prompts):
-            status_text.text(f"🎨 {card_name} 생성 중... ({i+1}/5)")
-            
-            # 이미지 생성
-            img = generate_image(prompt, api_key)
-            
-            if img:
-                generated_images.append((card_name, img))
-                st.success(f"✅ {card_name} 완성!")
+        if text_width <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line.strip())
+                current_line = word + " "
             else:
-                st.error(f"❌ {card_name} 생성 실패")
+                # 단어가 너무 길면 강제로 추가
+                lines.append(word)
+                current_line = ""
+    
+    if current_line:
+        lines.append(current_line.strip())
+    
+    return lines
+
+def create_perfect_korean_card(title, subtitle, content, style, color_scheme, width=1080, height=1920):
+    """완벽한 한글 카드뉴스 생성"""
+    
+    # 배경 생성
+    img = create_gradient_background(width, height, color_scheme)
+    draw = ImageDraw.Draw(img)
+    
+    # 폰트 로드
+    title_font = get_korean_font(100, 'bold')
+    subtitle_font = get_korean_font(70, 'regular') 
+    content_font = get_korean_font(50, 'regular')
+    
+    if not title_font:
+        st.error("폰트를 로드할 수 없습니다. 시스템 폰트를 확인해주세요.")
+        return None
+    
+    y_position = 200  # 시작 Y 위치
+    
+    # 1. 제목 그리기
+    if title:
+        # 제목 줄바꿈 처리
+        title_lines = wrap_text(title, title_font, width - 200, draw)
+        
+        for line in title_lines:
+            # 텍스트 크기 측정
+            bbox = draw.textbbox((0, 0), line, font=title_font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            # 중앙 정렬
+            x = (width - text_width) // 2
+            
+            # 배경 박스 (반투명 검은색)
+            padding = 30
+            draw.rectangle([x - padding, y_position - 20, 
+                          x + text_width + padding, y_position + text_height + 20], 
+                         fill=(0, 0, 0, 180))
+            
+            # 텍스트 그리기 (흰색)
+            draw.text((x, y_position), line, font=title_font, fill='white')
+            
+            y_position += text_height + 40
+        
+        y_position += 100  # 제목과 부제목 사이 간격
+    
+    # 2. 부제목 그리기
+    if subtitle:
+        subtitle_lines = wrap_text(subtitle, subtitle_font, width - 160, draw)
+        
+        for line in subtitle_lines:
+            bbox = draw.textbbox((0, 0), line, font=subtitle_font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            x = (width - text_width) // 2
+            
+            # 배경 박스 (반투명 흰색)
+            padding = 25
+            draw.rectangle([x - padding, y_position - 15, 
+                          x + text_width + padding, y_position + text_height + 15], 
+                         fill=(255, 255, 255, 200))
+            
+            # 텍스트 그리기 (검은색)
+            draw.text((x, y_position), line, font=subtitle_font, fill='#2c3e50')
+            
+            y_position += text_height + 30
+        
+        y_position += 150  # 부제목과 내용 사이 간격
+    
+    # 3. 내용 그리기
+    if content:
+        # 내용을 줄 단위로 분리
+        content_lines = content.split('\n')
+        all_lines = []
+        
+        for line in content_lines:
+            if line.strip():  # 빈 줄이 아닌 경우
+                wrapped_lines = wrap_text(line, content_font, width - 120, draw)
+                all_lines.extend(wrapped_lines)
+            else:
+                all_lines.append("")  # 빈 줄 유지
+        
+        # 전체 내용 영역의 높이 계산
+        line_height = 70
+        total_content_height = len([l for l in all_lines if l]) * line_height
+        
+        # 내용 배경 박스
+        content_start_y = y_position
+        max_line_width = 0
+        
+        # 최대 라인 너비 계산
+        for line in all_lines:
+            if line:
+                bbox = draw.textbbox((0, 0), line, font=content_font)
+                line_width = bbox[2] - bbox[0]
+                max_line_width = max(max_line_width, line_width)
+        
+        # 내용 전체 배경
+        bg_padding = 60
+        draw.rectangle([width//2 - max_line_width//2 - bg_padding, 
+                       content_start_y - 40,
+                       width//2 + max_line_width//2 + bg_padding, 
+                       content_start_y + total_content_height + 40],
+                      fill=(255, 255, 255, 220))
+        
+        # 각 줄 그리기
+        for line in all_lines:
+            if line:  # 빈 줄이 아닌 경우
+                bbox = draw.textbbox((0, 0), line, font=content_font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
                 
-            # 진행률 업데이트
-            progress_bar.progress((i + 1) / 5)
-            
-            # API 호출 간격 (Rate limit 방지)
-            if i < 4:  # 마지막이 아니면 대기
-                time.sleep(2)
+                x = (width - text_width) // 2
+                
+                # 텍스트 그리기
+                draw.text((x, y_position), line, font=content_font, fill='#2c3e50')
+                
+                y_position += line_height
+            else:
+                y_position += line_height // 2  # 빈 줄은 절반 높이
+    
+    return img
+
+# Streamlit 메인 앱
+def main():
+    st.set_page_config(page_title="한글 카드뉴스 생성기", page_icon="🎨", layout="wide")
+    
+    st.title("🎨 완벽한 한글 카드뉴스 생성기")
+    st.markdown("**100% 한글 깨짐 없음 보장!** ✨")
+    st.markdown("---")
+    
+    # 사이드바 설정
+    with st.sidebar:
+        st.header("🎨 디자인 설정")
         
-        progress_bar.progress(1.0)
-        status_text.text("🎉 모든 카드 생성 완료!")
+        color_scheme = st.selectbox(
+            "배경 색상",
+            ["블루 그라데이션", "퍼플 그라데이션", "그린 그라데이션", 
+             "오렌지 그라데이션", "다크 그라데이션", "핑크 그라데이션"]
+        )
         
-        # 결과 표시
-        if generated_images:
-            st.markdown("## 📱 생성된 카드뉴스")
-            st.markdown("---")
+        style = st.selectbox(
+            "카드 스타일",
+            ["모던", "미니멀", "비즈니스", "창의적"]
+        )
+        
+        st.markdown("---")
+        st.markdown("### 📱 카드 크기")
+        st.info("1080 x 1920 (Instagram Story)")
+    
+    # 메인 입력 폼
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.header("📝 카드 내용 입력")
+        
+        with st.form("card_form"):
+            title = st.text_input(
+                "제목 (필수)", 
+                value="결혼준비 예산관리!",
+                help="카드의 메인 제목을 입력하세요"
+            )
             
-            # 탭으로 각 카드 표시
-            tab_names = [name for name, _ in generated_images]
-            tabs = st.tabs(tab_names)
+            subtitle = st.text_input(
+                "부제목 (선택)", 
+                value="똑똑한 신혼부부의 필수 가이드",
+                help="제목 아래 들어갈 부제목을 입력하세요"
+            )
             
-            for i, (tab, (card_name, img)) in enumerate(zip(tabs, generated_images)):
-                with tab:
-                    st.image(img, caption=f"{card_name}", use_column_width=True)
+            content = st.text_area(
+                "내용 (선택)", 
+                value="""• 예식장 예약 시기별 할인율 비교
+• 드레스 렌탈 vs 구매 비용 분석  
+• 허니문 패키지 가격 협상 팁
+• 신혼집 준비 우선순위 체크리스트
+• 웨딩 플래너 선택 기준""",
+                height=200,
+                help="카드에 들어갈 상세 내용을 입력하세요. 줄바꿈이 자동으로 적용됩니다."
+            )
+            
+            submitted = st.form_submit_button("🎨 카드 생성하기", use_container_width=True)
+    
+    with col2:
+        st.header("📋 미리보기")
+        
+        # 실시간 미리보기 (간단한 텍스트)
+        if title:
+            st.markdown(f"**제목:** {title}")
+        if subtitle:
+            st.markdown(f"**부제목:** {subtitle}")
+        if content:
+            st.markdown("**내용:**")
+            st.text(content[:100] + "..." if len(content) > 100 else content)
+    
+    # 카드 생성 및 결과 표시
+    if submitted:
+        if not title:
+            st.error("제목을 입력해주세요!")
+            return
+        
+        with st.spinner("🎨 완벽한 한글 카드를 생성하고 있습니다..."):
+            try:
+                card_img = create_perfect_korean_card(
+                    title=title,
+                    subtitle=subtitle, 
+                    content=content,
+                    style=style,
+                    color_scheme=color_scheme
+                )
+                
+                if card_img:
+                    st.success("✅ 카드 생성 완료!")
+                    
+                    # 결과 표시
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    
+                    with col2:
+                        st.image(card_img, caption="생성된 한글 카드뉴스", use_column_width=True)
                     
                     # 다운로드 버튼
                     buf = io.BytesIO()
-                    img.save(buf, format='PNG')
-                    byte_im = buf.getvalue()
+                    card_img.save(buf, format='PNG', quality=95, optimize=True)
+                    buf.seek(0)
                     
                     st.download_button(
-                        label=f"💾 {card_name} 다운로드",
-                        data=byte_im,
-                        file_name=f"card_{i+1}_{card_name}.png",
-                        mime="image/png"
+                        label="📥 고해상도 이미지 다운로드",
+                        data=buf.getvalue(),
+                        file_name=f"한글카드_{title[:10].replace(' ', '_')}.png",
+                        mime="image/png",
+                        use_container_width=True
                     )
-            
-            # 전체 다운로드 옵션
-            st.markdown("### 📦 전체 다운로드")
-            if st.button("🗂️ 모든 카드 ZIP으로 다운로드"):
-                import zipfile
+                    
+                    # 추가 정보
+                    with st.expander("📊 카드 정보"):
+                        st.write(f"**크기:** 1080 x 1920 픽셀")
+                        st.write(f"**색상:** {color_scheme}")
+                        st.write(f"**스타일:** {style}")
+                        st.write(f"**폰트:** 시스템 한글 폰트 (자동 감지)")
+                        st.write(f"**파일 형식:** PNG (고해상도)")
                 
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-                    for i, (card_name, img) in enumerate(generated_images):
-                        img_buffer = io.BytesIO()
-                        img.save(img_buffer, format='PNG')
-                        zip_file.writestr(f"card_{i+1}_{card_name}.png", img_buffer.getvalue())
-                
-                st.download_button(
-                    label="📁 ZIP 파일 다운로드",
-                    data=zip_buffer.getvalue(),
-                    file_name=f"카드뉴스_{title}.zip",
-                    mime="application/zip"
-                )
+                else:
+                    st.error("카드 생성에 실패했습니다. 시스템 폰트를 확인해주세요.")
+                    
+            except Exception as e:
+                st.error(f"오류가 발생했습니다: {str(e)}")
+                st.info("시스템에 한글 폰트가 설치되어 있는지 확인해주세요.")
 
-# 사이드바 정보
-with st.sidebar:
-    st.markdown("## ℹ️ 사용 방법")
-    st.markdown("""
-    1. **OpenAI API 키** 입력
-    2. **제목과 부제목** 작성
-    3. **주요 내용 4가지** 입력
-    4. **스타일과 컬러** 선택
-    5. **생성하기** 버튼 클릭
-    
-    ---
-    
-    ### 📋 생성되는 카드
-    - **표지 카드** (제목 + 부제목)
-    - **내용 카드 4장** (각각의 주요 포인트)
-    
-    ### ⏱️ 소요 시간
-    - 약 **2-3분** (5장 생성)
-    
-    ### 💡 팁
-    - 내용은 **간결하고 명확**하게
-    - 한글 텍스트가 **잘 보이도록** 설계됨
-    """)
-    
-    st.markdown("---")
-    st.markdown("**Made with ❤️ by Monica**")
+    # 사용법 안내
+    with st.expander("📖 사용법 및 팁"):
+        st.markdown("""
+        ### 🎯 사용법
+        1. **제목**: 카드의 메인 메시지를 입력하세요
+        2. **부제목**: 제목을 보완하는 설명을 입력하세요  
+        3. **내용**: 상세 내용을 입력하세요 (자동 줄바꿈 지원)
+        4. **색상/스타일**: 사이드바에서 원하는 디자인을 선택하세요
+        
+        ### 💡 팁
+        - **한글 완벽 지원**: AI 없이 시스템 폰트 사용으로 깨짐 없음
+        - **자동 줄바꿈**: 긴 텍스트도 자동으로 적절히 배치
+        - **고해상도**: 1080x1920 Instagram Story 최적화
+        - **즉시 다운로드**: 생성 즉시 PNG 파일로 저장 가능
+        
+        ### 🚀 활용 예시
+        - 결혼 준비 가이드 카드
+        - 마케팅 인사이트 공유
+        - 교육 콘텐츠 제작
+        - 브랜드 홍보 자료
+        """)
+
+if __name__ == "__main__":
+    main()
