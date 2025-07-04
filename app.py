@@ -13,10 +13,16 @@ def download_korean_fonts():
     fonts_dir = Path("fonts")
     fonts_dir.mkdir(exist_ok=True)
     
-    # 나눔고딕 폰트 URL (Google Fonts에서 제공)
+    # 나눔고딕 폰트 URL (Google Fonts GitHub에서 제공)
     font_urls = {
-        "NanumGothic-Regular.ttf": "https://github.com/naver/nanumfont/raw/master/TTF/NanumGothic.ttf",
-        "NanumGothic-Bold.ttf": "https://github.com/naver/nanumfont/raw/master/TTF/NanumGothicBold.ttf"
+        "NanumGothic-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf",
+        "NanumGothic-Bold.ttf": "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Bold.ttf"
+    }
+    
+    # 백업 URL (Google Fonts API 직접 링크)
+    backup_urls = {
+        "NanumGothic-Regular.ttf": "https://fonts.gstatic.com/s/nanumgothic/v17/PN_3Rfi-oW3hYwmKDpxS7F_z_tLfxno73g.ttf",
+        "NanumGothic-Bold.ttf": "https://fonts.gstatic.com/s/nanumgothic/v17/PN_3Rfi-oW3hYwmKDpxS7F_z_tLfxno73g.ttf"
     }
     
     downloaded_fonts = {}
@@ -29,6 +35,9 @@ def download_korean_fonts():
             downloaded_fonts[font_name] = str(font_path)
             continue
             
+        success = False
+        
+        # 메인 URL 시도
         try:
             with st.spinner(f"한글 폰트 다운로드 중... ({font_name})"):
                 response = requests.get(url, timeout=30)
@@ -39,17 +48,52 @@ def download_korean_fonts():
                     
                 downloaded_fonts[font_name] = str(font_path)
                 st.success(f"✅ {font_name} 다운로드 완료!")
+                success = True
                 
         except Exception as e:
-            st.warning(f"⚠️ {font_name} 다운로드 실패: {e}")
-            continue
+            st.warning(f"⚠️ 메인 URL 실패: {e}")
+            
+            # 백업 URL 시도
+            if font_name in backup_urls:
+                try:
+                    backup_url = backup_urls[font_name]
+                    response = requests.get(backup_url, timeout=30)
+                    response.raise_for_status()
+                    
+                    with open(font_path, 'wb') as f:
+                        f.write(response.content)
+                        
+                    downloaded_fonts[font_name] = str(font_path)
+                    st.success(f"✅ {font_name} 백업 URL로 다운로드 완료!")
+                    success = True
+                    
+                except Exception as backup_e:
+                    st.error(f"❌ 백업 URL도 실패: {backup_e}")
+        
+        if not success:
+            st.error(f"❌ {font_name} 다운로드 실패")
     
     return downloaded_fonts
 
 def get_korean_font(size=60, weight='regular'):
     """한글 폰트 로드 (자동 다운로드 포함)"""
     
-    # 폰트 다운로드
+    # 먼저 로컬 폰트 파일 확인
+    fonts_dir = Path("fonts")
+    
+    if weight == 'bold':
+        local_font = fonts_dir / "NanumGothic-Bold.ttf"
+    else:
+        local_font = fonts_dir / "NanumGothic-Regular.ttf"
+    
+    # 로컬 파일이 있으면 바로 사용
+    if local_font.exists():
+        try:
+            return ImageFont.truetype(str(local_font), size)
+        except Exception as e:
+            st.warning(f"로컬 폰트 로딩 실패: {e}")
+    
+    # 없으면 다운로드 시도
     fonts = download_korean_fonts()
     
     # 폰트 선택
@@ -58,7 +102,23 @@ def get_korean_font(size=60, weight='regular'):
     elif "NanumGothic-Regular.ttf" in fonts:
         font_path = fonts["NanumGothic-Regular.ttf"]
     else:
-        st.error("❌ 한글 폰트를 로드할 수 없습니다!")
+        # 최후 수단: 시스템 폰트 시도
+        st.warning("⚠️ 나눔고딕 다운로드 실패. 시스템 폰트를 시도합니다.")
+        
+        system_fonts = [
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Linux
+            "C:/Windows/Fonts/malgun.ttf",  # Windows
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",  # Mac
+        ]
+        
+        for sys_font in system_fonts:
+            if os.path.exists(sys_font):
+                try:
+                    return ImageFont.truetype(sys_font, size)
+                except:
+                    continue
+        
+        st.error("❌ 모든 폰트 로딩 방법이 실패했습니다!")
         return None
     
     try:
