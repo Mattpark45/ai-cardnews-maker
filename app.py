@@ -485,10 +485,12 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
-    # 텍스트 가독성을 위한 어두운 오버레이 추가 (안전한 방법)
-    overlay = Image.new('RGB', (width, height), (0, 0, 0))
-    # 블렌딩으로 반투명 효과 구현
-    img = Image.blend(img, overlay, alpha=0.3)
+    # 텍스트 가독성을 위한 어두운 효과 (ImageEnhance 사용)
+    try:
+        enhancer = ImageEnhance.Brightness(img)
+        img = enhancer.enhance(0.7)  # 30% 어둡게
+    except Exception as e:
+        st.warning(f"이미지 어둡게 처리 실패: {e}")
     
     draw = ImageDraw.Draw(img)
     
@@ -864,20 +866,31 @@ def main():
                 generated_cards = []
                 
                 for i, card_data in enumerate(cards_data):
-                    card_img = create_carousel_card(
-                        card_data, 
-                        i + 1, 
-                        len(cards_data), 
-                        background_type, 
-                        theme
-                    )
-                    
-                    if card_img:
-                        generated_cards.append((card_img, card_data))
+                    try:
+                        st.info(f"카드 {i+1} 생성 중...")
                         
-                        # 3개씩 가로로 배치
-                        with cols[i % 3]:
-                            st.image(card_img, caption=f"카드 {i+1}: {card_data['title'][:15]}...", use_container_width=True)
+                        card_img = create_carousel_card(
+                            card_data, 
+                            i + 1, 
+                            len(cards_data), 
+                            background_type, 
+                            theme
+                        )
+                        
+                        if card_img:
+                            generated_cards.append((card_img, card_data))
+                            
+                            # 3개씩 가로로 배치
+                            with cols[i % 3]:
+                                st.image(card_img, caption=f"카드 {i+1}: {card_data['title'][:15]}...", use_container_width=True)
+                                st.success(f"✅ 카드 {i+1} 완성!")
+                        else:
+                            st.error(f"❌ 카드 {i+1} 생성 실패")
+                            
+                    except Exception as card_error:
+                        st.error(f"❌ 카드 {i+1} 생성 오류: {str(card_error)}")
+                        st.code(f"상세 오류: {repr(card_error)}")
+                        continue
                 
                 if generated_cards:
                     # ZIP 파일 생성
