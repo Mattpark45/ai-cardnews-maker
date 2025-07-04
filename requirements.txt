@@ -1,6 +1,2 @@
-
-openai
-requests
-
 streamlit==1.28.1
 pillow==10.0.1
