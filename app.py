@@ -1,5 +1,5 @@
 import streamlit as st
-import openai
+from openai import OpenAI
 import requests
 import json
 import time
@@ -15,9 +15,14 @@ st.set_page_config(
     layout="wide"
 )
 
-# API 키 설정
-openai.api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+# OpenAI 클라이언트 초기화
+openai_api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 leonardo_api_key = st.secrets.get("LEONARDO_API_KEY") or os.getenv("LEONARDO_API_KEY")
+
+if openai_api_key:
+    client = OpenAI(api_key=openai_api_key)
+else:
+    client = None
 
 def create_content_structure(topic, industry, platform):
     """GPT를 사용해 캐러셀 콘텐츠 구조 생성"""
@@ -91,7 +96,7 @@ def create_content_structure(topic, industry, platform):
     """
     
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7
@@ -398,7 +403,7 @@ def main():
         st.header("⚙️ 설정")
         
         # API 키 확인
-        if not openai.api_key:
+        if not client:
             st.error("OpenAI API 키가 설정되지 않았습니다.")
             st.stop()
         
