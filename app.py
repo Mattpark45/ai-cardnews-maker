@@ -282,11 +282,15 @@ def generate_placeholder_pics(prompt, width, height, card_number):
         return None
 
 def apply_image_effects(img, style):
-    """이미지에 스타일 효과 적용"""
+    """이미지에 스타일 효과 적용 (안전한 처리)"""
     if not img:
         return img
     
     try:
+        # RGB 모드 확인 및 변환
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
         if style == "blur":
             # 블러 효과 (텍스트 가독성 향상)
             img = img.filter(ImageFilter.GaussianBlur(radius=12))
@@ -307,11 +311,19 @@ def apply_image_effects(img, style):
             enhancer = ImageEnhance.Sharpness(img)
             img = enhancer.enhance(1.1)
         
+        # 최종 RGB 모드 확인
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
         return img
         
     except Exception as e:
         st.warning(f"이미지 효과 적용 실패: {e}")
-        return img
+        # 실패시 원본 이미지를 RGB로 변환해서 반환
+        try:
+            return img.convert('RGB')
+        except:
+            return img
 
 def create_advanced_gradient(width, height, theme, card_number):
     """고급 그라데이션 배경 생성 (카드별 다름)"""
@@ -469,9 +481,14 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
         # 그라데이션도 카드별로 다르게
         img = create_advanced_gradient(width, height, theme, card_number)
     
-    # 텍스트 가독성을 위한 어두운 오버레이 추가
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 120))
-    img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+    # 이미지 모드 통일 (RGB로 변환)
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    
+    # 텍스트 가독성을 위한 어두운 오버레이 추가 (안전한 방법)
+    overlay = Image.new('RGB', (width, height), (0, 0, 0))
+    # 블렌딩으로 반투명 효과 구현
+    img = Image.blend(img, overlay, alpha=0.3)
     
     draw = ImageDraw.Draw(img)
     
