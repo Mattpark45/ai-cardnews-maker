@@ -1,4 +1,541 @@
-background_type = st.selectbox(import streamlit as st
+# 3. 내용 그리기
+    content = card_data.get('content', '')
+    if content:
+        content_lines = content.split('\n')
+        all_lines = []
+        
+        for line in content_lines:
+            if line.strip():
+                if line.strip().startswith('•') or line.strip().startswith('-'):
+                    wrapped_lines = wrap_text(line, content_font, width - margin * 2 - spacing['padding'])
+                else:
+                    wrapped_lines = wrap_text(line, content_font, width - margin * 2)
+                all_lines.extend(wrapped_lines)
+            else:
+                all_lines.append("")
+        
+        # 내용 전체 영역 크기 계산
+        line_height = spacing['line_height']
+        max_line_width = 0
+        content_height = 0
+        
+        for line in all_lines:
+            if line:
+                line_width, _ = get_text_dimensions(line, content_font)
+                max_line_width = max(max_line_width, line_width)
+                content_height += line_height
+            else:
+                content_height += line_height // 2
+        
+        # 내용 전체 배경
+        bg_padding = int(spacing['padding'] * 1.3)
+        bg_x1 = (width - max_line_width) // 2 - bg_padding
+        bg_x2 = (width + max_line_width) // 2 + bg_padding
+        bg_y1 = y_position - bg_padding//2
+        bg_y2 = y_position + content_height + bg_padding//2
+        
+        # 화면 하단을 넘지 않도록 조정
+        bottom_margin = height // 20
+        if bg_y2 > height - bottom_margin:
+            # 내용이 너무 길면 폰트 크기 축소
+            content_font = get_korean_font(int(font_sizes['content'] * 0.85), 'regular')
+            line_height = int(spacing['line_height'] * 0.85)
+            
+            # 다시 계산
+            content_height = 0
+            for line in all_lines:
+                if line:
+                    content_height += line_height
+                else:
+                    content_height += line_height // 2
+            
+            bg_y2 = y_position + content_height + bg_padding//2
+        
+        # 반투명 배경
+        draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=(255, 255, 255, 240))
+        
+        # 각 줄 그리기
+        for line in all_lines:
+            if line:
+                # 불릿 포인트 스타일링
+                if line.strip().startswith('•'):
+                    line = line.replace('•', '●')
+                elif line.strip().startswith('-'):
+                    line = line.replace('-', '●')
+                
+                text_width, text_height = get_text_dimensions(line, content_font)
+                x = (width - text_width) // 2
+                
+                # 불릿 포인트면 왼쪽 정렬
+                if line.strip().startswith('●'):
+                    x = bg_x1 + bg_padding//2
+                
+                draw.text((x, y_position), line, font=content_font, fill='#2c3e50')
+                y_position += line_height
+            else:
+                y_position += line_height // 2
+    
+    return img
+
+def split_content_into_cards(title, subtitle, content, max_cards=5):
+    """콘텐츠를 여러 카드로 분할"""
+    
+    cards = []
+    
+    # 첫 번째 카드 (타이틀 카드)
+    cards.append({
+        'title': title,
+        'subtitle': subtitle,
+        'content': ''
+    })
+    
+    if not content:
+        return cards
+    
+    # 내용을 줄 단위로 분리
+    lines = [line.strip() for line in content.split('\n') if line.strip()]
+    
+    # 각 카드당 최대 줄 수
+    max_lines_per_card = max(1, len(lines) // (max_cards - 1))
+    
+    current_card_lines = []
+    
+    for i, line in enumerate(lines):
+        current_card_lines.append(line)
+        
+        # 카드가 가득 찼거나 마지막 줄인 경우
+        if len(current_card_lines) >= max_lines_per_card or i == len(lines) - 1:
+            if len(cards) < max_cards:
+                # 카드 제목 생성 (첫 번째 불릿 포인트에서 추출)
+                card_title = ""
+                if current_card_lines:
+                    first_line = current_card_lines[0]
+                    if first_line.startswith('•') or first_line.startswith('-'):
+                        card_title = first_line[1:].strip()[:20] + "..."
+                    else:
+                        card_title = f"{title} - {len(cards)}"
+                
+                cards.append({
+                    'title': card_title,
+                    'subtitle': '',
+                    'content': '\n'.join(current_card_lines)
+                })
+                
+                current_card_lines = []
+    
+    return cards[:max_cards]
+
+def create_carousel_zip(cards_data, background_type, theme, width=1080, height=1920):
+    """캐러셀 카드들을 ZIP 파일로 생성"""
+    
+    zip_buffer = io.BytesIO()
+    
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        
+        for i, card_data in enumerate(cards_data, 1):
+            # 각 카드 생성
+            card_img = create_carousel_card(
+                card_data, 
+                i, 
+                len(cards_data), 
+                background_type, 
+                theme,
+                width,
+                height
+            )
+            
+            if card_img:
+                # 이미지를 바이트로 변환
+                img_buffer = io.BytesIO()
+                card_img.save(img_buffer, format='PNG', quality=100, optimize=True)
+                img_buffer.seek(0)
+                
+                # ZIP에 추가
+                filename = f"카드_{i:02d}_{card_data['title'][:10].replace(' ', '_')}.png"
+                zip_file.writestr(filename, img_buffer.getvalue())
+    
+    zip_buffer.seek(0)
+    return zip_buffer
+
+# Streamlit 메인 앱
+def main():
+    st.set_page_config(
+        page_title="한글 캐러셀 카드뉴스 생성기", 
+        page_icon="🎨", 
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # 스타일링
+    st.markdown("""
+    <style>
+    .main-title {
+        text-align: center;
+        color: #2c3e50;
+        font-size: 3rem;
+        font-weight: bold;
+        margin-bottom: 1rem;
+    }
+    .subtitle {
+        text-align: center;
+        color: #7f8c8d;
+        font-size: 1.2rem;
+        margin-bottom: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<h1 class="main-title">🎠 한글 캐러셀 카드뉴스 생성기</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">AI 배경과 완벽한 한글 렌더링으로 전문적인 캐러셀 카드뉴스를 만들어보세요!</p>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # 사이드바 설정
+    with st.sidebar:
+        st.header("🎨 디자인 설정")
+        
+        # 플랫폼별 사이즈 선택
+        platform = st.selectbox(
+            "📱 플랫폼 선택",
+            ["Instagram Carousel", "YouTube Thumbnail", "Naver Blog", "Facebook Post", "Custom Size"],
+            help="각 플랫폼에 최적화된 크기로 카드를 생성합니다"
+        )
+        
+        # 플랫폼별 사이즈 정의
+        platform_sizes = {
+            "Instagram Carousel": (1080, 1080, "정사각형 - Instagram 캐러셀 최적화"),
+            "YouTube Thumbnail": (1280, 720, "16:9 - YouTube 썸네일 표준"),
+            "Naver Blog": (800, 600, "4:3 - 네이버 블로그 썸네일"),
+            "Facebook Post": (1200, 630, "1.91:1 - Facebook 링크 미리보기"),
+            "Custom Size": (1080, 1920, "사용자 정의")
+        }
+        
+        width, height, size_description = platform_sizes[platform]
+        
+        # 커스텀 사이즈인 경우 사용자 입력 받기
+        if platform == "Custom Size":
+            col1, col2 = st.columns(2)
+            with col1:
+                width = st.number_input("너비 (px)", min_value=400, max_value=2000, value=1080, step=10)
+            with col2:
+                height = st.number_input("높이 (px)", min_value=400, max_value=2000, value=1920, step=10)
+            size_description = f"{width} x {height}px"
+        
+        background_type = st.selectbox(
+            "🖼️ 배경 타입",
+            ["ai", "gradient"],
+            format_func=lambda x: "🤖 AI 생성 이미지" if x == "ai" else "🌈 그라데이션"
+        )
+        
+        if background_type == "ai":
+            theme = st.selectbox(
+                "🎯 AI 배경 테마",
+                ["비즈니스", "자연", "기술", "음식", "여행", "패션", "교육", "건강", "라이프스타일", "창의적"]
+            )
+        else:
+            theme = st.selectbox(
+                "🌈 그라데이션 색상",
+                ["블루 그라데이션", "퍼플 그라데이션", "그린 그라데이션", 
+                 "오렌지 그라데이션", "다크 그라데이션", "핑크 그라데이션",
+                 "민트 그라데이션", "선셋 그라데이션"]
+            )
+        
+        max_cards = st.slider("📱 최대 카드 수", 3, 8, 5)
+        
+        st.markdown("---")
+        st.markdown("### 📱 카드 정보")
+        st.info(f"**크기:** {width} x {height}px\n**설명:** {size_description}\n**형식:** PNG (고해상도)")
+        
+        # 플랫폼별 사용 팁
+        platform_tips = {
+            "Instagram Carousel": "• 최대 10장까지 업로드 가능\n• 정사각형으로 일관성 있는 피드\n• 스와이프로 순서대로 확인",
+            "YouTube Thumbnail": "• 1280x720 권장 해상도\n• 16:9 비율로 플레이어에 최적화\n• 텍스트는 크고 명확하게",
+            "Naver Blog": "• 포스팅 썸네일로 활용\n• 4:3 비율로 미리보기 최적화\n• SEO 효과 기대",
+            "Facebook Post": "• 링크 미리보기 최적화\n• 1.91:1 비율 권장\n• 뉴스피드에서 눈에 띄는 크기",
+            "Custom Size": "• 원하는 크기로 자유 설정\n• 다양한 용도로 활용 가능\n• 인쇄물 제작도 고려"
+        }
+        
+        with st.expander(f"💡 {platform} 활용 팁"):
+            st.write(platform_tips[platform])
+        
+        if background_type == "ai":
+            st.markdown("### 🤖 AI 배경 시스템")
+            st.success("**다중 API 지원**\n• Pollinations AI (최고품질)\n• 카드별 맞춤 이미지\n• 콘텐츠 기반 키워드 추출")
+        
+        st.markdown("### 🔤 폰트 정보")
+        st.success("**나눔고딕** 자동 다운로드\n한글 완벽 지원 보장!")
+    
+    # 메인 콘텐츠
+    col1, col2 = st.columns([3, 2])
+    
+    with col1:
+        st.header("✏️ 캐러셀 내용 입력")
+        
+        with st.form("carousel_form", clear_on_submit=False):
+            title = st.text_input(
+                "📌 메인 제목 (필수)", 
+                value="완벽한 예산관리 가이드",
+                help="캐러셀 전체의 메인 제목입니다",
+                placeholder="예: 결혼준비 완벽 가이드"
+            )
+            
+            subtitle = st.text_input(
+                "📝 부제목 (선택)", 
+                value="신혼부부를 위한 단계별 팁",
+                help="첫 번째 카드에 들어갈 부제목입니다",
+                placeholder="예: 전문가가 알려주는 비밀"
+            )
+            
+            content = st.text_area(
+                "📄 상세 내용 (자동으로 여러 카드로 분할됩니다)", 
+                value="""• 예식장 예약 시기별 할인율 비교 분석
+• 드레스 렌탈 vs 구매 비용 상세 계산법  
+• 허니문 패키지 가격 협상 전략 공개
+• 신혼집 준비 우선순위 체크리스트 완전판
+• 웨딩 플래너 선택 기준과 비용 절약법
+• 하객 관리와 예산 배분의 황금 비율
+• 웨딩드레스 피팅 일정과 체중 관리 팁
+• 결혼식 당일 응급상황 대처 매뉴얼""",
+                height=300,
+                help="내용이 자동으로 여러 카드로 분할됩니다. '●' 또는 '-'로 시작하면 불릿 포인트가 됩니다.",
+                placeholder="● 첫 번째 팁\n● 두 번째 팁\n● 세 번째 팁..."
+            )
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                submitted = st.form_submit_button("🎠 캐러셀 생성하기", use_container_width=True, type="primary")
+            with col_btn2:
+                clear_form = st.form_submit_button("🗑️ 초기화", use_container_width=True)
+    
+    with col2:
+        st.header("👀 캐러셀 미리보기")
+        
+        if title:
+            # 콘텐츠를 카드로 분할해서 미리보기
+            cards_preview = split_content_into_cards(title, subtitle, content, max_cards)
+            
+            st.markdown(f"**📱 총 {len(cards_preview)}장의 카드가 생성됩니다**")
+            st.markdown("---")
+            
+            for i, card in enumerate(cards_preview, 1):
+                with st.expander(f"🎴 카드 {i}: {card['title'][:20]}..."):
+                    st.markdown(f"**제목:** {card['title']}")
+                    if card['subtitle']:
+                        st.markdown(f"**부제목:** {card['subtitle']}")
+                    if card['content']:
+                        content_preview = card['content'][:100] + "..." if len(card['content']) > 100 else card['content']
+                        st.text(content_preview)
+        
+        # 통계 정보
+        if any([title, subtitle, content]):
+            st.markdown("---")
+            st.markdown("### 📊 캐러셀 통계")
+            
+            total_chars = len(title or "") + len(subtitle or "") + len(content or "")
+            content_lines = len([line for line in content.split('\n') if line.strip()]) if content else 0
+            
+            col_stat1, col_stat2 = st.columns(2)
+            with col_stat1:
+                st.metric("총 글자수", total_chars)
+            with col_stat2:
+                st.metric("내용 항목", content_lines)
+    
+    # 캐러셀 생성 처리
+    if clear_form:
+        st.rerun()
+    
+    if submitted:
+        if not title:
+            st.error("❌ 메인 제목을 입력해주세요!")
+            return
+        
+        # 콘텐츠를 카드로 분할
+        cards_data = split_content_into_cards(title, subtitle, content, max_cards)
+        
+        with st.spinner(f"🎠 {len(cards_data)}장의 전문적인 {platform} 카드를 생성하고 있습니다..."):
+            try:
+                # 개별 카드들을 먼저 미리보기로 표시
+                st.success(f"✅ {len(cards_data)}장의 {platform} 카드 생성 완료!")
+                
+                # 결과 표시
+                st.markdown("---")
+                st.markdown(f"### 🎯 생성된 {platform} 카드뉴스")
+                
+                # 카드들을 가로로 표시
+                cols = st.columns(min(len(cards_data), 3))
+                generated_cards = []
+                
+                for i, card_data in enumerate(cards_data):
+                    try:
+                        st.info(f"카드 {i+1} 생성 중...")
+                        
+                        card_img = create_carousel_card(
+                            card_data, 
+                            i + 1, 
+                            len(cards_data), 
+                            background_type, 
+                            theme,
+                            width,  # 선택한 플랫폼의 너비
+                            height  # 선택한 플랫폼의 높이
+                        )
+                        
+                        if card_img:
+                            generated_cards.append((card_img, card_data))
+                            
+                            # 3개씩 가로로 배치
+                            with cols[i % 3]:
+                                st.image(card_img, caption=f"카드 {i+1}: {card_data['title'][:15]}...", use_container_width=True)
+                                st.success(f"✅ 카드 {i+1} 완성!")
+                        else:
+                            st.error(f"❌ 카드 {i+1} 생성 실패")
+                            
+                    except Exception as card_error:
+                        st.error(f"❌ 카드 {i+1} 생성 오류: {str(card_error)}")
+                        st.code(f"상세 오류: {repr(card_error)}")
+                        continue
+                
+                if generated_cards:
+                    # ZIP 파일 생성 (플랫폼별 크기 적용)
+                    with st.spinner("📦 ZIP 파일 생성 중..."):
+                        zip_buffer = create_carousel_zip(cards_data, background_type, theme, width, height)
+                    
+                    # 다운로드 섹션
+                    col_dl1, col_dl2, col_dl3 = st.columns([1, 2, 1])
+                    with col_dl2:
+                        # 파일명 생성
+                        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                        safe_title = safe_title[:20].replace(' ', '_')
+                        zip_filename = f"{platform.replace(' ', '_')}_{safe_title}_{len(cards_data)}장.zip"
+                        
+                        st.download_button(
+                            label=f"📦 {platform} 전체 다운로드 ({len(cards_data)}장 ZIP)",
+                            data=zip_buffer.getvalue(),
+                            file_name=zip_filename,
+                            mime="application/zip",
+                            use_container_width=True
+                        )
+                    
+                    # 개별 카드 다운로드 옵션
+                    with st.expander("📥 개별 카드 다운로드"):
+                        for i, (card_img, card_data) in enumerate(generated_cards):
+                            col_individual1, col_individual2 = st.columns([2, 1])
+                            
+                            with col_individual1:
+                                st.markdown(f"**카드 {i+1}:** {card_data['title']}")
+                            
+                            with col_individual2:
+                                # 개별 카드 이미지를 바이트로 변환
+                                individual_buffer = io.BytesIO()
+                                card_img.save(individual_buffer, format='PNG', quality=100, optimize=True)
+                                individual_buffer.seek(0)
+                                
+                                individual_filename = f"카드_{i+1:02d}_{card_data['title'][:10].replace(' ', '_')}.png"
+                                
+                                st.download_button(
+                                    label="PNG 다운로드",
+                                    data=individual_buffer.getvalue(),
+                                    file_name=individual_filename,
+                                    mime="image/png",
+                                    key=f"download_{i}"
+                                )
+                    
+                    # 캐러셀 정보
+                    with st.expander("📊 생성된 카드뉴스 상세 정보"):
+                        col_info1, col_info2 = st.columns(2)
+                        
+                        with col_info1:
+                            st.write("**🖼️ 카드 정보**")
+                            st.write(f"• 총 카드 수: {len(cards_data)}장")
+                            st.write(f"• 카드 크기: {width} x {height} 픽셀")
+                            st.write(f"• 플랫폼: {platform}")
+                            st.write(f"• 형식: PNG (무손실 고화질)")
+                            st.write(f"• ZIP 용량: {len(zip_buffer.getvalue()) / 1024:.1f} KB")
+                        
+                        with col_info2:
+                            st.write("**🎨 디자인 정보**")
+                            st.write(f"• 배경: {'AI 생성 이미지' if background_type == 'ai' else '그라데이션'}")
+                            st.write(f"• 테마: {theme}")
+                            st.write(f"• 폰트: 나눔고딕 (플랫폼 최적화)")
+                            st.write(f"• 최적화: {size_description}")
+                        
+                        # 플랫폼별 사용법 안내
+                        st.markdown("---")
+                        platform_guides = {
+                            "Instagram Carousel": "**📸 Instagram 업로드 방법:**\n1. Instagram 앱에서 '+' 버튼 클릭\n2. '캐러셀' 선택 후 카드들을 순서대로 선택\n3. 필터 및 편집 후 게시",
+                            "YouTube Thumbnail": "**📺 YouTube 썸네일 설정:**\n1. YouTube Studio에서 동영상 선택\n2. '세부정보' 탭에서 썸네일 업로드\n3. 생성된 이미지 중 선택하여 적용",
+                            "Naver Blog": "**📝 네이버 블로그 활용:**\n1. 포스팅 작성 시 대표 이미지로 설정\n2. 본문 내 이미지로 삽입\n3. 썸네일로 노출되어 클릭률 향상",
+                            "Facebook Post": "**📘 Facebook 포스트 활용:**\n1. 페이지 또는 개인 계정에서 포스트 작성\n2. 이미지 첨부로 카드뉴스 업로드\n3. 캐러셀 형태로 여러 장 업로드 가능",
+                            "Custom Size": "**🔧 커스텀 사이즈 활용:**\n1. 인쇄물 제작 시 활용 가능\n2. 웹사이트 배너로 사용\n3. 프레젠테이션 슬라이드로 활용"
+                        }
+                        
+                        st.markdown(platform_guides.get(platform, "다양한 용도로 활용 가능합니다."))
+                
+                else:
+                    st.error("❌ 캐러셀 카드 생성에 실패했습니다.")
+                    st.info("💡 네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요.")
+                    
+            except Exception as e:
+                st.error(f"❌ 오류가 발생했습니다: {str(e)}")
+                with st.expander("🔍 오류 상세 정보"):
+                    st.code(str(e))
+
+    # 도움말 섹션
+    with st.expander("📖 캐러셀 카드뉴스 완전 가이드"):
+        tab1, tab2, tab3, tab4 = st.tabs(["🚀 빠른 시작", "🎨 디자인 팁", "📱 활용법", "🛠️ 기술 정보"])
+        
+        with tab1:
+            st.markdown("""
+            ### 🎯 4단계로 캐러셀 만들기
+            
+            1. **플랫폼 선택** - Instagram, YouTube, 네이버 블로그 등
+            2. **메인 제목 입력** - 캐러셀 전체의 핵심 메시지
+            3. **상세 내용 입력** - 자동으로 여러 카드로 분할됩니다
+            4. **생성 & 다운로드** - ZIP 파일로 모든 카드 한 번에 저장
+            
+            ### ✨ 캐러셀 템플릿 예시
+            
+            **📌 메인 제목:** "성공하는 창업자의 5가지 습관"
+            
+            **📝 부제목:** "실리콘밸리 CEO들의 비밀"
+            
+            **📄 상세 내용:**
+            ```
+            • 매일 새벽 5시 기상으로 하루를 시작하기
+            • 독서와 학습에 하루 2시간 이상 투자하기
+            • 네트워킹을 위한 주 3회 이상 미팅 참석
+            • 실패를 두려워하지 않는 도전 정신 기르기
+            • 고객 피드백을 즉시 제품에 반영하는 애자일 사고
+            ```
+            
+            **결과:** 5개 항목이 자동으로 5장의 아름다운 캐러셀 카드로 변환됩니다!
+            """)
+        
+        with tab2:
+            st.markdown("""
+            ### 🎨 효과적인 캐러셀 디자인 가이드
+            
+            #### 📝 텍스트 최적화
+            - **메인 제목**: 15-25자 이내, 임팩트 있는 키워드 포함
+            - **부제목**: 제목을 보완하는 구체적 설명
+            - **내용**: 3-8개 불릿 포인트로 구성
+            - **각 포인트**: 한 줄당 15-30자 권장
+            
+            #### 🎯 플랫폼별 최적화
+            - **Instagram**: 정사각형 비율로 피드 일관성
+            - **YouTube**: 16:9 비율로 썸네일 최적화
+            - **네이버 블로그**: 4:3 비율로 포스팅 썸네일
+            - **Facebook**: 1.91:1 비율로 링크 미리보기
+            
+            #### 🤖 AI 배경 활용
+            - **비즈니스**: 전문적이고 신뢰감 있는 이미지
+            - **자연**: 힐링과 평온함을 주는 배경
+            - **기술**: 미래지향적이고 혁신적인 느낌
+            - **라이프스타일**: 일상적이고 친근한 분위기
+            """)
+        
+        with tab3:
+            st.markdown("""
+            ###import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 import io
 import os
@@ -127,7 +664,7 @@ def get_optimized_spacing(width, height):
         'section_gap': int(40 * scale)
     }
 
-# AI 이미지 생성 (다양한 API 지원)
+# AI 이미지 생성 함수들
 def extract_keywords_from_content(card_content):
     """카드 내용에서 이미지 생성용 키워드 추출"""
     
@@ -400,6 +937,8 @@ def apply_image_effects(img, style):
             return img.convert('RGB')
         except:
             return img
+
+def create_advanced_gradient(width, height, theme, card_number):
     """고급 그라데이션 배경 생성 (카드별 다름)"""
     
     # 테마별 다양한 색상 조합
@@ -653,277 +1192,4 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
     # 3. 내용 그리기
     content = card_data.get('content', '')
     if content:
-        content_lines = content.split('\n')
-        all_lines = []
-        
-        for line in content_lines:
-            if line.strip():
-                if line.strip().startswith('•') or line.strip().startswith('-'):
-                    wrapped_lines = wrap_text(line, content_font, width - margin * 2 - spacing['padding'])
-                else:
-                    wrapped_lines = wrap_text(line, content_font, width - margin * 2)
-                all_lines.extend(wrapped_lines)
-            else:
-                all_lines.append("")
-        
-        # 내용 전체 영역 크기 계산
-        line_height = spacing['line_height']
-        max_line_width = 0
-        content_height = 0
-        
-        for line in all_lines:
-            if line:
-                line_width, _ = get_text_dimensions(line, content_font)
-                max_line_width = max(max_line_width, line_width)
-                content_height += line_height
-            else:
-                content_height += line_height // 2
-        
-        # 내용 전체 배경
-        bg_padding = int(spacing['padding'] * 1.3)
-        bg_x1 = (width - max_line_width) // 2 - bg_padding
-        bg_x2 = (width + max_line_width) // 2 + bg_padding
-        bg_y1 = y_position - bg_padding//2
-        bg_y2 = y_position + content_height + bg_padding//2
-        
-        # 화면 하단을 넘지 않도록 조정
-        bottom_margin = height // 20
-        if bg_y2 > height - bottom_margin:
-            # 내용이 너무 길면 폰트 크기 축소
-            content_font = get_korean_font(int(font_sizes['content'] * 0.85), 'regular')
-            line_height = int(spacing['line_height'] * 0.85)
-            
-            # 다시 계산
-            content_height = 0
-            for line in all_lines:
-                if line:
-                    content_height += line_height
-                else:
-                    content_height += line_height // 2
-            
-            bg_y2 = y_position + content_height + bg_padding//2
-        
-        # 반투명 배경
-        draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=(255, 255, 255, 240))
-        
-        # 각 줄 그리기
-        for line in all_lines:
-            if line:
-                # 불릿 포인트 스타일링
-                if line.strip().startswith('•'):
-                    line = line.replace('•', '●')
-                elif line.strip().startswith('-'):
-                    line = line.replace('-', '●')
-                
-                text_width, text_height = get_text_dimensions(line, content_font)
-                x = (width - text_width) // 2
-                
-                # 불릿 포인트면 왼쪽 정렬
-                if line.strip().startswith('●'):
-                    x = bg_x1 + bg_padding//2
-                
-                draw.text((x, y_position), line, font=content_font, fill='#2c3e50')
-                y_position += line_height
-            else:
-                y_position += line_height // 2
-    
-    return img
-
-def split_content_into_cards(title, subtitle, content, max_cards=5):
-    """콘텐츠를 여러 카드로 분할"""
-    
-    cards = []
-    
-    # 첫 번째 카드 (타이틀 카드)
-    cards.append({
-        'title': title,
-        'subtitle': subtitle,
-        'content': ''
-    })
-    
-    if not content:
-        return cards
-    
-    # 내용을 줄 단위로 분리
-    lines = [line.strip() for line in content.split('\n') if line.strip()]
-    
-    # 각 카드당 최대 줄 수
-    max_lines_per_card = max(1, len(lines) // (max_cards - 1))
-    
-    current_card_lines = []
-    
-    for i, line in enumerate(lines):
-        current_card_lines.append(line)
-        
-        # 카드가 가득 찼거나 마지막 줄인 경우
-        if len(current_card_lines) >= max_lines_per_card or i == len(lines) - 1:
-            if len(cards) < max_cards:
-                # 카드 제목 생성 (첫 번째 불릿 포인트에서 추출)
-                card_title = ""
-                if current_card_lines:
-                    first_line = current_card_lines[0]
-                    if first_line.startswith('•') or first_line.startswith('-'):
-                        card_title = first_line[1:].strip()[:20] + "..."
-                    else:
-                        card_title = f"{title} - {len(cards)}"
-                
-                cards.append({
-                    'title': card_title,
-                    'subtitle': '',
-                    'content': '\n'.join(current_card_lines)
-                })
-                
-                current_card_lines = []
-    
-    return cards[:max_cards]
-
-def create_carousel_zip(cards_data, background_type, theme, width=1080, height=1920):
-    """캐러셀 카드들을 ZIP 파일로 생성"""
-    
-    zip_buffer = io.BytesIO()
-    
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        
-        for i, card_data in enumerate(cards_data, 1):
-            # 각 카드 생성
-            card_img = create_carousel_card(
-                card_data, 
-                i, 
-                len(cards_data), 
-                background_type, 
-                theme,
-                width,
-                height
-            )
-            
-            if card_img:
-                # 이미지를 바이트로 변환
-                img_buffer = io.BytesIO()
-                card_img.save(img_buffer, format='PNG', quality=100, optimize=True)
-                img_buffer.seek(0)
-                
-                # ZIP에 추가
-                filename = f"카드_{i:02d}_{card_data['title'][:10].replace(' ', '_')}.png"
-                zip_file.writestr(filename, img_buffer.getvalue())
-    
-    zip_buffer.seek(0)
-    return zip_buffer
-
-# Streamlit 메인 앱
-def main():
-    st.set_page_config(
-        page_title="한글 캐러셀 카드뉴스 생성기", 
-        page_icon="🎨", 
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-    
-    # 스타일링
-    st.markdown("""
-    <style>
-    .main-title {
-        text-align: center;
-        color: #2c3e50;
-        font-size: 3rem;
-        font-weight: bold;
-        margin-bottom: 1rem;
-    }
-    .subtitle {
-        text-align: center;
-        color: #7f8c8d;
-        font-size: 1.2rem;
-        margin-bottom: 2rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<h1 class="main-title">🎠 한글 캐러셀 카드뉴스 생성기</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">완벽한 한글 렌더링으로 전문적인 캐러셀 카드뉴스를 만들어보세요!</p>', unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # 사이드바 설정
-    with st.sidebar:
-        st.header("🎨 디자인 설정")
-        
-        # 플랫폼별 사이즈 선택
-        platform = st.selectbox(
-            "📱 플랫폼 선택",
-            ["Instagram Carousel", "YouTube Thumbnail", "Naver Blog", "Facebook Post", "Custom Size"],
-            help="각 플랫폼에 최적화된 크기로 카드를 생성합니다"
-        )
-        
-        # 플랫폼별 사이즈 정의
-        platform_sizes = {
-            "Instagram Carousel": (1080, 1080, "정사각형 - Instagram 캐러셀 최적화"),
-            "YouTube Thumbnail": (1280, 720, "16:9 - YouTube 썸네일 표준"),
-            "Naver Blog": (800, 600, "4:3 - 네이버 블로그 썸네일"),
-            "Facebook Post": (1200, 630, "1.91:1 - Facebook 링크 미리보기"),
-            "Custom Size": (1080, 1920, "사용자 정의")
-        }
-        
-        width, height, size_description = platform_sizes[platform]
-        
-        # 커스텀 사이즈인 경우 사용자 입력 받기
-        if platform == "Custom Size":
-            col1, col2 = st.columns(2)
-            with col1:
-                width = st.number_input("너비 (px)", min_value=400, max_value=2000, value=1080, step=10)
-            with col2:
-                height = st.number_input("높이 (px)", min_value=400, max_value=2000, value=1920, step=10)
-            size_description = f"{width} x {height}px"
-        
-        background_type = st.selectbox(
-            "🖼️ 배경 타입",
-            ["ai", "gradient"],
-            format_func=lambda x: "🤖 AI 생성 이미지" if x == "ai" else "🌈 그라데이션"
-        )
-        
-        if background_type == "ai":
-            theme = st.selectbox(
-                "🎯 AI 배경 테마",
-                ["비즈니스", "자연", "기술", "음식", "여행", "패션", "교육", "건강", "라이프스타일", "창의적"]
-            )
-        else:
-            theme = st.selectbox(
-                "🌈 그라데이션 색상",
-                ["블루 그라데이션", "퍼플 그라데이션", "그린 그라데이션", 
-                 "오렌지 그라데이션", "다크 그라데이션", "핑크 그라데이션",
-                 "민트 그라데이션", "선셋 그라데이션"]
-            )
-        
-        max_cards = st.slider("📱 최대 카드 수", 3, 8, 5)
-        
-        st.markdown("---")
-        st.markdown("### 📱 카드 정보")
-        st.info(f"**크기:** {width} x {height}px\n**설명:** {size_description}\n**형식:** PNG (고해상도)")
-        
-        # 플랫폼별 사용 팁
-        platform_tips = {
-            "Instagram Carousel": "• 최대 10장까지 업로드 가능\n• 정사각형으로 일관성 있는 피드\n• 스와이프로 순서대로 확인",
-            "YouTube Thumbnail": "• 1280x720 권장 해상도\n• 16:9 비율로 플레이어에 최적화\n• 텍스트는 크고 명확하게",
-            "Naver Blog": "• 포스팅 썸네일로 활용\n• 4:3 비율로 미리보기 최적화\n• SEO 효과 기대",
-            "Facebook Post": "• 링크 미리보기 최적화\n• 1.91:1 비율 권장\n• 뉴스피드에서 눈에 띄는 크기",
-            "Custom Size": "• 원하는 크기로 자유 설정\n• 다양한 용도로 활용 가능\n• 인쇄물 제작도 고려"
-        }
-        
-        with st.expander(f"💡 {platform} 활용 팁"):
-            st.write(platform_tips[platform])
-        
-        if background_type == "ai":
-            st.markdown("### 🤖 AI 배경 시스템")
-            st.success("**다중 API 지원**\n• Pollinations AI (최고품질)\n• 카드별 맞춤 이미지\n• 콘텐츠 기반 키워드 추출")
-        
-        st.markdown("### 🔤 폰트 정보")
-        st.success("**나눔고딕** 자동 다운로드\n한글 완벽 지원 보장!")
-    
-    # 메인 콘텐츠
-    col1, col2 = st.columns([3, 2])
-    
-    with col1:
-        st.header("✏️ 캐러셀 내용 입력")
-        
-        with st.form("carousel_form", clear_on_submit=False):
-            title = st.text_input(
-                "📌 메인 제목 (필수)", 
-                value="완벽한 예산관리 가이드",
+        content_
