@@ -146,7 +146,7 @@ def create_gradient_background(width, height, color_scheme):
         "다크 그라데이션": [(44, 62, 80), (52, 73, 94)],
         "핑크 그라데이션": [(253, 121, 168), (232, 93, 117)],
         "민트 그라데이션": [(26, 188, 156), (22, 160, 133)],
-        "선셋 그라데이션": [(255, 94, 77), (255, 154, 0))
+        "선셋 그라데이션": [(255, 94, 77), (255, 154, 0)]
     }
     
     start_color, end_color = color_schemes.get(color_scheme, color_schemes["블루 그라데이션"])
