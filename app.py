@@ -417,36 +417,82 @@ def get_text_dimensions(text, font):
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
 def wrap_text(text, font, max_width):
-    """개선된 텍스트 자동 줄바꿈"""
+    """개선된 텍스트 자동 줄바꿈 (한글 최적화)"""
     if not text:
         return []
     
     lines = []
-    words = text.split()
     
-    if not words:
-        return [text]
-    
+    # 한글 특성상 단어 단위보다는 글자 단위로 처리하는 것이 더 효과적
     current_line = ""
     
-    for word in words:
-        test_line = current_line + word + " " if current_line else word + " "
-        text_width, _ = get_text_dimensions(test_line.strip(), font)
+    for char in text:
+        test_line = current_line + char
+        text_width, _ = get_text_dimensions(test_line, font)
         
         if text_width <= max_width:
             current_line = test_line
         else:
             if current_line:
-                lines.append(current_line.strip())
-                current_line = word + " "
+                lines.append(current_line)
+                current_line = char
             else:
-                lines.append(word)
+                # 한 글자도 들어가지 않는 경우 (거의 없겠지만)
+                lines.append(char)
                 current_line = ""
     
     if current_line:
-        lines.append(current_line.strip())
+        lines.append(current_line)
+    
+    # 빈 라인 제거
+    lines = [line for line in lines if line.strip()]
     
     return lines
+
+def get_optimized_font_sizes(width, height):
+    """플랫폼 크기에 따른 최적 폰트 크기 계산"""
+    
+    # 기준 크기 (Instagram Story 1080x1920)
+    base_width, base_height = 1080, 1920
+    base_title_size = 75
+    base_subtitle_size = 48
+    base_content_size = 38
+    base_page_size = 30
+    
+    # 크기 비율 계산 (면적 기준)
+    area_ratio = (width * height) / (base_width * base_height)
+    size_multiplier = area_ratio ** 0.5  # 제곱근으로 적절한 스케일링
+    
+    # 최소/최대 제한
+    size_multiplier = max(0.6, min(1.5, size_multiplier))
+    
+    return {
+        'title': int(base_title_size * size_multiplier),
+        'subtitle': int(base_subtitle_size * size_multiplier),
+        'content': int(base_content_size * size_multiplier),
+        'page': int(base_page_size * size_multiplier)
+    }
+
+def get_optimized_spacing(width, height):
+    """플랫폼 크기에 따른 최적 간격 계산"""
+    
+    # 기준 간격값들
+    base_margin = 60
+    base_y_start = 100
+    base_padding = 30
+    
+    # 크기에 따른 스케일링
+    area_ratio = (width * height) / (1080 * 1920)
+    scale = area_ratio ** 0.5
+    scale = max(0.7, min(1.3, scale))
+    
+    return {
+        'margin': int(base_margin * scale),
+        'y_start': int(base_y_start * scale),
+        'padding': int(base_padding * scale),
+        'line_height': int(50 * scale),
+        'section_gap': int(40 * scale)
+    }
 
 def draw_text_with_shadow(draw, position, text, font, text_color='white', shadow_color=(0, 0, 0, 180), shadow_offset=(3, 3)):
     """그림자 효과가 있는 텍스트 그리기"""
@@ -459,7 +505,7 @@ def draw_text_with_shadow(draw, position, text, font, text_color='white', shadow
     draw.text((x, y), text, font=font, fill=text_color)
 
 def create_carousel_card(card_data, card_number, total_cards, background_type="ai", theme="비즈니스", width=1080, height=1920):
-    """캐러셀용 개별 카드 생성 (각 카드별 맞춤 이미지)"""
+    """캐러셀용 개별 카드 생성 (플랫폼별 크기 최적화)"""
     
     # 카드 내용 조합 (키워드 추출용)
     card_content = f"{card_data.get('title', '')} {card_data.get('subtitle', '')} {card_data.get('content', '')}"
@@ -494,26 +540,34 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
     
     draw = ImageDraw.Draw(img)
     
-    # 폰트 로드
-    title_font = get_korean_font(85, 'bold')
-    subtitle_font = get_korean_font(55, 'regular') 
-    content_font = get_korean_font(42, 'regular')
-    page_font = get_korean_font(35, 'regular')
+    # 플랫폼별 최적화된 폰트 크기 및 간격 계산
+    font_sizes = get_optimized_font_sizes(width, height)
+    spacing = get_optimized_spacing(width, height)
+    
+    # 폰트 로드 (플랫폼별 최적화)
+    title_font = get_korean_font(font_sizes['title'], 'bold')
+    subtitle_font = get_korean_font(font_sizes['subtitle'], 'regular')
+    content_font = get_korean_font(font_sizes['content'], 'regular')
+    page_font = get_korean_font(font_sizes['page'], 'regular')
     
     if not title_font:
         return None
     
-    margin = 80
-    y_position = 120
+    margin = spacing['margin']
+    y_position = spacing['y_start']
     
-    # 페이지 번호 표시 (우상단)
+    # 페이지 번호 표시 (우상단, 크기에 맞게 조정)
     page_text = f"{card_number}/{total_cards}"
     page_width, page_height = get_text_dimensions(page_text, page_font)
-    draw.rectangle([width - page_width - 60, 40, width - 20, 40 + page_height + 20], 
-                  fill=(255, 255, 255, 200))
-    draw.text((width - page_width - 40, 50), page_text, font=page_font, fill='#2c3e50')
+    page_margin = max(15, width // 72)  # 화면 크기에 비례
     
-    # 1. 제목 그리기
+    draw.rectangle([width - page_width - page_margin*2, page_margin, 
+                   width - page_margin//2, page_margin + page_height + page_margin], 
+                  fill=(255, 255, 255, 200))
+    draw.text((width - page_width - page_margin, page_margin + page_margin//2), 
+              page_text, font=page_font, fill='#2c3e50')
+    
+    # 1. 제목 그리기 (플랫폼별 최적화)
     title = card_data.get('title', '')
     if title:
         title_lines = wrap_text(title, title_font, width - margin * 2)
@@ -522,20 +576,22 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
             text_width, text_height = get_text_dimensions(line, title_font)
             x = (width - text_width) // 2
             
-            # 제목 배경
-            padding = 40
-            draw.rectangle([x - padding, y_position - 15, 
-                          x + text_width + padding, y_position + text_height + 15], 
+            # 제목 배경 (화면 크기에 비례)
+            padding = spacing['padding']
+            draw.rectangle([x - padding, y_position - padding//2, 
+                          x + text_width + padding, y_position + text_height + padding//2], 
                          fill=(0, 0, 0, 160))
             
             # 텍스트 그리기 (그림자 효과)
-            draw_text_with_shadow(draw, (x, y_position), line, title_font, 'white')
+            shadow_offset = (max(2, width//540), max(2, height//960))  # 화면 크기에 비례
+            draw_text_with_shadow(draw, (x, y_position), line, title_font, 'white', 
+                                shadow_offset=shadow_offset)
             
-            y_position += text_height + 20
+            y_position += text_height + spacing['line_height']//3
         
-        y_position += 60
+        y_position += spacing['section_gap']
     
-    # 2. 부제목 그리기
+    # 2. 부제목 그리기 (플랫폼별 최적화)
     subtitle = card_data.get('subtitle', '')
     if subtitle:
         subtitle_lines = wrap_text(subtitle, subtitle_font, width - margin * 2)
@@ -545,18 +601,18 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
             x = (width - text_width) // 2
             
             # 부제목 배경
-            padding = 30
-            draw.rectangle([x - padding, y_position - 10, 
-                          x + text_width + padding, y_position + text_height + 10], 
+            padding = spacing['padding'] * 0.8
+            draw.rectangle([x - padding, y_position - padding//2, 
+                          x + text_width + padding, y_position + text_height + padding//2], 
                          fill=(255, 255, 255, 220))
             
             draw.text((x, y_position), line, font=subtitle_font, fill='#2c3e50')
             
-            y_position += text_height + 15
+            y_position += text_height + spacing['line_height']//4
         
-        y_position += 100
+        y_position += spacing['section_gap'] * 1.5
     
-    # 3. 내용 그리기
+    # 3. 내용 그리기 (플랫폼별 최적화)
     content = card_data.get('content', '')
     if content:
         content_lines = content.split('\n')
@@ -565,7 +621,7 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
         for line in content_lines:
             if line.strip():
                 if line.strip().startswith('•') or line.strip().startswith('-'):
-                    wrapped_lines = wrap_text(line, content_font, width - margin * 2 - 40)
+                    wrapped_lines = wrap_text(line, content_font, width - margin * 2 - spacing['padding'])
                 else:
                     wrapped_lines = wrap_text(line, content_font, width - margin * 2)
                 all_lines.extend(wrapped_lines)
@@ -573,7 +629,7 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
                 all_lines.append("")
         
         # 내용 전체 영역 크기 계산
-        line_height = 60
+        line_height = spacing['line_height']
         max_line_width = 0
         content_height = 0
         
@@ -586,11 +642,28 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
                 content_height += line_height // 2
         
         # 내용 전체 배경
-        bg_padding = 50
+        bg_padding = spacing['padding'] * 1.3
         bg_x1 = (width - max_line_width) // 2 - bg_padding
         bg_x2 = (width + max_line_width) // 2 + bg_padding
-        bg_y1 = y_position - 30
-        bg_y2 = y_position + content_height + 30
+        bg_y1 = y_position - bg_padding//2
+        bg_y2 = y_position + content_height + bg_padding//2
+        
+        # 화면 하단을 넘지 않도록 조정
+        bottom_margin = height // 20  # 화면 크기의 5%
+        if bg_y2 > height - bottom_margin:
+            # 내용이 너무 길면 폰트 크기 축소
+            content_font = get_korean_font(int(font_sizes['content'] * 0.85), 'regular')
+            line_height = int(spacing['line_height'] * 0.85)
+            
+            # 다시 계산
+            content_height = 0
+            for line in all_lines:
+                if line:
+                    content_height += line_height
+                else:
+                    content_height += line_height // 2
+            
+            bg_y2 = y_position + content_height + bg_padding//2
         
         # 반투명 배경
         draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=(255, 255, 255, 240))
@@ -609,9 +682,17 @@ def create_carousel_card(card_data, card_number, total_cards, background_type="a
                 
                 # 불릿 포인트면 왼쪽 정렬
                 if line.strip().startswith('●'):
-                    x = bg_x1 + 30
+                    x = bg_x1 + bg_padding//2
                 
                 draw.text((x, y_position), line, font=content_font, fill='#2c3e50')
+                y_position += line_height
+            else:
+                y_position += line_height // 2
+    
+    return img, y_position), line, font=content_font, fill='#2c3e50')
+                y_position += line_height
+            else:
+                y_position += line_height // 2, y_position), line, font=content_font, fill='#2c3e50')
                 y_position += line_height
             else:
                 y_position += line_height // 2
@@ -666,21 +747,23 @@ def split_content_into_cards(title, subtitle, content, max_cards=5):
     
     return cards[:max_cards]
 
-def create_carousel_zip(cards_data, background_type, theme):
-    """캐러셀 카드들을 ZIP 파일로 생성"""
+def create_carousel_zip(cards_data, background_type, theme, width=1080, height=1920):
+    """캐러셀 카드들을 ZIP 파일로 생성 (플랫폼별 크기 지원)"""
     
     zip_buffer = io.BytesIO()
     
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         
         for i, card_data in enumerate(cards_data, 1):
-            # 각 카드 생성
+            # 각 카드 생성 (플랫폼별 크기 적용)
             card_img = create_carousel_card(
                 card_data, 
                 i, 
                 len(cards_data), 
                 background_type, 
-                theme
+                theme,
+                width,
+                height
             )
             
             if card_img:
@@ -733,6 +816,33 @@ def main():
     with st.sidebar:
         st.header("🎨 디자인 설정")
         
+        # 플랫폼별 사이즈 선택
+        platform = st.selectbox(
+            "📱 플랫폼 선택",
+            ["Instagram Carousel", "YouTube Thumbnail", "Naver Blog", "Facebook Post", "Custom Size"],
+            help="각 플랫폼에 최적화된 크기로 카드를 생성합니다"
+        )
+        
+        # 플랫폼별 사이즈 정의
+        platform_sizes = {
+            "Instagram Carousel": (1080, 1080, "정사각형 - Instagram 캐러셀 최적화"),
+            "YouTube Thumbnail": (1280, 720, "16:9 - YouTube 썸네일 표준"),
+            "Naver Blog": (800, 600, "4:3 - 네이버 블로그 썸네일"),
+            "Facebook Post": (1200, 630, "1.91:1 - Facebook 링크 미리보기"),
+            "Custom Size": (1080, 1920, "사용자 정의")
+        }
+        
+        width, height, size_description = platform_sizes[platform]
+        
+        # 커스텀 사이즈인 경우 사용자 입력 받기
+        if platform == "Custom Size":
+            col1, col2 = st.columns(2)
+            with col1:
+                width = st.number_input("너비 (px)", min_value=400, max_value=2000, value=1080, step=10)
+            with col2:
+                height = st.number_input("높이 (px)", min_value=400, max_value=2000, value=1920, step=10)
+            size_description = f"{width} x {height}px"
+        
         background_type = st.selectbox(
             "🖼️ 배경 타입",
             ["ai", "gradient"],
@@ -756,7 +866,19 @@ def main():
         
         st.markdown("---")
         st.markdown("### 📱 카드 정보")
-        st.info("**크기:** 1080 x 1920px\n**최적화:** Instagram Carousel\n**형식:** PNG (고해상도)")
+        st.info(f"**크기:** {width} x {height}px\n**설명:** {size_description}\n**형식:** PNG (고해상도)")
+        
+        # 플랫폼별 사용 팁
+        platform_tips = {
+            "Instagram Carousel": "• 최대 10장까지 업로드 가능\n• 정사각형으로 일관성 있는 피드\n• 스와이프로 순서대로 확인",
+            "YouTube Thumbnail": "• 1280x720 권장 해상도\n• 16:9 비율로 플레이어에 최적화\n• 텍스트는 크고 명확하게",
+            "Naver Blog": "• 포스팅 썸네일로 활용\n• 4:3 비율로 미리보기 최적화\n• SEO 효과 기대",
+            "Facebook Post": "• 링크 미리보기 최적화\n• 1.91:1 비율 권장\n• 뉴스피드에서 눈에 띄는 크기",
+            "Custom Size": "• 원하는 크기로 자유 설정\n• 다양한 용도로 활용 가능\n• 인쇄물 제작도 고려"
+        }
+        
+        with st.expander(f"💡 {platform} 활용 팁"):
+            st.write(platform_tips[platform])
         
         if background_type == "ai":
             st.markdown("### 🤖 AI 배경 시스템")
@@ -852,14 +974,14 @@ def main():
         # 콘텐츠를 카드로 분할
         cards_data = split_content_into_cards(title, subtitle, content, max_cards)
         
-        with st.spinner(f"🎠 {len(cards_data)}장의 전문적인 캐러셀 카드를 생성하고 있습니다..."):
+        with st.spinner(f"🎠 {len(cards_data)}장의 전문적인 {platform} 카드를 생성하고 있습니다..."):
             try:
                 # 개별 카드들을 먼저 미리보기로 표시
-                st.success(f"✅ {len(cards_data)}장의 캐러셀 카드 생성 완료!")
+                st.success(f"✅ {len(cards_data)}장의 {platform} 카드 생성 완료!")
                 
                 # 결과 표시
                 st.markdown("---")
-                st.markdown("### 🎯 생성된 캐러셀 카드뉴스")
+                st.markdown(f"### 🎯 생성된 {platform} 카드뉴스")
                 
                 # 카드들을 가로로 표시
                 cols = st.columns(min(len(cards_data), 3))
@@ -874,7 +996,9 @@ def main():
                             i + 1, 
                             len(cards_data), 
                             background_type, 
-                            theme
+                            theme,
+                            width,  # 선택한 플랫폼의 너비
+                            height  # 선택한 플랫폼의 높이
                         )
                         
                         if card_img:
@@ -893,9 +1017,9 @@ def main():
                         continue
                 
                 if generated_cards:
-                    # ZIP 파일 생성
+                    # ZIP 파일 생성 (플랫폼별 크기 적용)
                     with st.spinner("📦 ZIP 파일 생성 중..."):
-                        zip_buffer = create_carousel_zip(cards_data, background_type, theme)
+                        zip_buffer = create_carousel_zip(cards_data, background_type, theme, width, height)
                     
                     # 다운로드 섹션
                     col_dl1, col_dl2, col_dl3 = st.columns([1, 2, 1])
@@ -903,10 +1027,10 @@ def main():
                         # 파일명 생성
                         safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
                         safe_title = safe_title[:20].replace(' ', '_')
-                        zip_filename = f"캐러셀_{safe_title}_{len(cards_data)}장.zip"
+                        zip_filename = f"{platform.replace(' ', '_')}_{safe_title}_{len(cards_data)}장.zip"
                         
                         st.download_button(
-                            label=f"📦 캐러셀 전체 다운로드 ({len(cards_data)}장 ZIP)",
+                            label=f"📦 {platform} 전체 다운로드 ({len(cards_data)}장 ZIP)",
                             data=zip_buffer.getvalue(),
                             file_name=zip_filename,
                             mime="application/zip",
@@ -938,13 +1062,14 @@ def main():
                                 )
                     
                     # 캐러셀 정보
-                    with st.expander("📊 생성된 캐러셀 상세 정보"):
+                    with st.expander("📊 생성된 카드뉴스 상세 정보"):
                         col_info1, col_info2 = st.columns(2)
                         
                         with col_info1:
-                            st.write("**🖼️ 캐러셀 정보**")
+                            st.write("**🖼️ 카드 정보**")
                             st.write(f"• 총 카드 수: {len(cards_data)}장")
-                            st.write(f"• 카드 크기: 1080 x 1920 픽셀")
+                            st.write(f"• 카드 크기: {width} x {height} 픽셀")
+                            st.write(f"• 플랫폼: {platform}")
                             st.write(f"• 형식: PNG (무손실 고화질)")
                             st.write(f"• ZIP 용량: {len(zip_buffer.getvalue()) / 1024:.1f} KB")
                         
@@ -952,16 +1077,20 @@ def main():
                             st.write("**🎨 디자인 정보**")
                             st.write(f"• 배경: {'AI 생성 이미지' if background_type == 'ai' else '그라데이션'}")
                             st.write(f"• 테마: {theme}")
-                            st.write(f"• 폰트: 나눔고딕")
-                            st.write(f"• 최적화: Instagram Carousel")
+                            st.write(f"• 폰트: 나눔고딕 (플랫폼 최적화)")
+                            st.write(f"• 최적화: {size_description}")
                         
-                        # 사용법 안내
+                        # 플랫폼별 사용법 안내
                         st.markdown("---")
-                        st.markdown("**📱 Instagram 캐러셀 업로드 방법:**")
-                        st.markdown("1. ZIP 파일 다운로드 및 압축 해제")
-                        st.markdown("2. Instagram 앱에서 '+' 버튼 클릭")
-                        st.markdown("3. '캐러셀' 선택 후 카드들을 순서대로 선택")
-                        st.markdown("4. 필터 및 편집 후 게시")
+                        platform_guides = {
+                            "Instagram Carousel": "**📸 Instagram 업로드 방법:**\n1. Instagram 앱에서 '+' 버튼 클릭\n2. '캐러셀' 선택 후 카드들을 순서대로 선택\n3. 필터 및 편집 후 게시",
+                            "YouTube Thumbnail": "**📺 YouTube 썸네일 설정:**\n1. YouTube Studio에서 동영상 선택\n2. '세부정보' 탭에서 썸네일 업로드\n3. 생성된 이미지 중 선택하여 적용",
+                            "Naver Blog": "**📝 네이버 블로그 활용:**\n1. 포스팅 작성 시 대표 이미지로 설정\n2. 본문 내 이미지로 삽입\n3. 썸네일로 노출되어 클릭률 향상",
+                            "Facebook Post": "**📘 Facebook 포스트 활용:**\n1. 페이지 또는 개인 계정에서 포스트 작성\n2. 이미지 첨부로 카드뉴스 업로드\n3. 캐러셀 형태로 여러 장 업로드 가능",
+                            "Custom Size": "**🔧 커스텀 사이즈 활용:**\n1. 인쇄물 제작 시 활용 가능\n2. 웹사이트 배너로 사용\n3. 프레젠테이션 슬라이드로 활용"
+                        }
+                        
+                        st.markdown(platform_guides.get(platform, "다양한 용도로 활용 가능합니다."))
                 
                 else:
                     st.error("❌ 캐러셀 카드 생성에 실패했습니다.")
