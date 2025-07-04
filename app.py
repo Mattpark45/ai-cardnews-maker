@@ -82,58 +82,289 @@ def get_korean_font(size=60, weight='regular'):
         st.error(f"폰트 로딩 오류: {e}")
         return None
 
-# AI 이미지 생성 (Picsum API 사용 - 실제 서비스에서는 DALL-E, Midjourney API 등 사용)
+# AI 이미지 생성 (다양한 API 지원)
 @st.cache_data
-def generate_ai_background(theme, width=1080, height=1920, style="modern"):
-    """AI 스타일 배경 이미지 생성 (Picsum Photos API 활용)"""
+def generate_ai_background_advanced(card_content, card_number, theme="비즈니스", width=1080, height=1920, style="modern"):
+    """고품질 AI 배경 이미지 생성 (카드별 맞춤형)"""
     
-    # 테마별 시드 번호 (일관된 이미지를 위해)
-    theme_seeds = {
-        "비즈니스": 42,
-        "자연": 123,
-        "기술": 456,
-        "음식": 789,
-        "여행": 321,
-        "패션": 654,
-        "교육": 987,
-        "건강": 147,
-        "라이프스타일": 258,
-        "창의적": 369
+    # 카드 내용에서 키워드 추출
+    content_keywords = extract_keywords_from_content(card_content)
+    
+    # 테마별 기본 프롬프트
+    theme_prompts = {
+        "비즈니스": "professional business office modern clean minimal",
+        "자연": "nature landscape beautiful serene peaceful outdoor",
+        "기술": "technology futuristic digital modern innovation tech",
+        "음식": "food cooking kitchen restaurant culinary delicious",
+        "여행": "travel destination adventure scenic beautiful landscape",
+        "패션": "fashion style elegant modern trendy lifestyle",
+        "교육": "education learning study books knowledge academic",
+        "건강": "health wellness fitness lifestyle clean minimalist",
+        "라이프스타일": "lifestyle modern cozy comfortable home living",
+        "창의적": "creative artistic colorful vibrant inspiring abstract"
     }
     
-    seed = theme_seeds.get(theme, 100)
+    base_prompt = theme_prompts.get(theme, "modern minimalist professional")
+    
+    # 카드별 고유 프롬프트 생성
+    card_specific_prompt = f"{base_prompt} {content_keywords} card{card_number}"
+    
+    # 다양한 AI 이미지 API 시도 (우선순위대로)
+    ai_apis = [
+        ("pollinations", generate_pollinations_image),
+        ("lorem_picsum_varied", generate_varied_picsum),
+        ("unsplash_source", generate_unsplash_source),
+        ("placeholder_pics", generate_placeholder_pics)
+    ]
+    
+    for api_name, api_function in ai_apis:
+        try:
+            with st.spinner(f"🎨 {api_name}로 '{theme}' 테마 배경 생성 중... (카드 {card_number})"):
+                img = api_function(card_specific_prompt, width, height, card_number)
+                
+                if img:
+                    # 스타일 후처리 적용
+                    img = apply_image_effects(img, style)
+                    st.success(f"✅ {api_name}으로 카드 {card_number} 배경 생성 완료!")
+                    return img
+                    
+        except Exception as e:
+            st.warning(f"⚠️ {api_name} 실패: {e}")
+            continue
+    
+    # 모든 API 실패시 고급 그라데이션으로 대체
+    st.warning(f"모든 AI API 실패. 고급 그라데이션으로 대체합니다.")
+    return create_advanced_gradient(width, height, theme, card_number)
+
+def extract_keywords_from_content(card_content):
+    """카드 내용에서 이미지 생성용 키워드 추출"""
+    
+    # 한글 키워드를 영어로 매핑
+    korean_to_english = {
+        "예산": "budget money finance",
+        "관리": "management organization",
+        "결혼": "wedding marriage",
+        "예식": "ceremony celebration",
+        "드레스": "dress fashion elegant",
+        "허니문": "honeymoon travel romantic",
+        "신혼집": "home house interior",
+        "웨딩": "wedding bride groom",
+        "투자": "investment finance business",
+        "주식": "stock market finance",
+        "부동산": "real estate property",
+        "창업": "startup business entrepreneur",
+        "마케팅": "marketing business strategy",
+        "건강": "health wellness fitness",
+        "요리": "cooking food kitchen",
+        "여행": "travel adventure journey",
+        "교육": "education learning study",
+        "기술": "technology innovation digital",
+        "패션": "fashion style trendy",
+        "뷰티": "beauty cosmetics skincare"
+    }
+    
+    keywords = []
+    content_lower = card_content.lower()
+    
+    for korean, english in korean_to_english.items():
+        if korean in content_lower:
+            keywords.append(english)
+    
+    return " ".join(keywords[:3])  # 최대 3개 키워드만 사용
+
+def generate_pollinations_image(prompt, width, height, card_number):
+    """Pollinations AI API로 고품질 이미지 생성"""
+    try:
+        # Pollinations API 엔드포인트
+        base_url = "https://image.pollinations.ai/prompt/"
+        
+        # 프롬프트 최적화
+        optimized_prompt = f"{prompt} high quality professional photography 4k ultra detailed"
+        optimized_prompt = optimized_prompt.replace(" ", "%20")
+        
+        # 카드별 시드 생성 (다른 이미지를 위해)
+        seed = hash(f"{prompt}_{card_number}") % 10000
+        
+        # API URL 구성
+        api_url = f"{base_url}{optimized_prompt}?width={width}&height={height}&seed={seed}&enhance=true"
+        
+        # 이미지 요청
+        response = requests.get(api_url, timeout=30)
+        response.raise_for_status()
+        
+        # 이미지 반환
+        return Image.open(io.BytesIO(response.content))
+        
+    except Exception as e:
+        st.warning(f"Pollinations API 오류: {e}")
+        return None
+
+def generate_varied_picsum(prompt, width, height, card_number):
+    """다양한 Picsum 이미지 생성 (카드별 다름)"""
+    try:
+        # 프롬프트와 카드 번호로 시드 생성
+        seed = hash(f"{prompt}_{card_number}") % 1000
+        
+        # 다양한 이미지를 위해 카테고리별 시드 범위 설정
+        category_seeds = {
+            "business": range(100, 200),
+            "nature": range(200, 300),
+            "technology": range(300, 400),
+            "food": range(400, 500),
+            "lifestyle": range(500, 600)
+        }
+        
+        # 프롬프트에서 카테고리 감지
+        category = "business"  # 기본값
+        for cat in category_seeds.keys():
+            if cat in prompt.lower():
+                category = cat
+                break
+        
+        # 해당 카테고리의 시드 범위에서 선택
+        seed_range = category_seeds[category]
+        actual_seed = seed_range.start + (seed % len(seed_range))
+        
+        # Picsum API 호출
+        url = f"https://picsum.photos/seed/{actual_seed}/{width}/{height}"
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        return Image.open(io.BytesIO(response.content))
+        
+    except Exception as e:
+        st.warning(f"Varied Picsum 오류: {e}")
+        return None
+
+def generate_unsplash_source(prompt, width, height, card_number):
+    """Unsplash Source API로 테마별 이미지 생성"""
+    try:
+        # 프롬프트에서 검색어 추출
+        search_terms = prompt.replace(" ", ",").split(",")[:3]  # 최대 3개 키워드
+        search_query = ",".join(search_terms)
+        
+        # Unsplash Source API
+        url = f"https://source.unsplash.com/{width}x{height}/?{search_query}"
+        
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        return Image.open(io.BytesIO(response.content))
+        
+    except Exception as e:
+        st.warning(f"Unsplash Source 오류: {e}")
+        return None
+
+def generate_placeholder_pics(prompt, width, height, card_number):
+    """다양한 플레이스홀더 이미지 서비스 활용"""
+    try:
+        # 카드별 다른 색상 조합
+        colors = [
+            ("4A90E2", "FFFFFF"),  # 파란색
+            ("7ED321", "FFFFFF"),  # 초록색
+            ("F5A623", "FFFFFF"),  # 주황색
+            ("BD10E0", "FFFFFF"),  # 보라색
+            ("B8E986", "FFFFFF"),  # 연두색
+        ]
+        
+        bg_color, text_color = colors[card_number % len(colors)]
+        
+        # Placeholder.pics API
+        url = f"https://via.placeholder.com/{width}x{height}/{bg_color}/{text_color}?text=Card+{card_number}"
+        
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        return Image.open(io.BytesIO(response.content))
+        
+    except Exception as e:
+        st.warning(f"Placeholder Pics 오류: {e}")
+        return None
+
+def apply_image_effects(img, style):
+    """이미지에 스타일 효과 적용"""
+    if not img:
+        return img
     
     try:
-        # Picsum Photos에서 고해상도 이미지 가져오기
-        url = f"https://picsum.photos/seed/{seed}/{width}/{height}"
+        if style == "blur":
+            # 블러 효과 (텍스트 가독성 향상)
+            img = img.filter(ImageFilter.GaussianBlur(radius=12))
+        elif style == "dark":
+            # 어둡게 처리
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(0.4)
+        elif style == "vintage":
+            # 빈티지 효과
+            enhancer = ImageEnhance.Color(img)
+            img = enhancer.enhance(0.8)
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.1)
+        elif style == "modern":
+            # 모던 효과 (대비 증가)
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.2)
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(1.1)
         
-        with st.spinner(f"🎨 {theme} 테마 배경 이미지 생성 중..."):
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            
-            # 이미지 열기
-            img = Image.open(io.BytesIO(response.content))
-            
-            # 스타일 적용
-            if style == "blur":
-                # 블러 효과
-                img = img.filter(ImageFilter.GaussianBlur(radius=8))
-            elif style == "dark":
-                # 어둡게 처리
-                enhancer = ImageEnhance.Brightness(img)
-                img = enhancer.enhance(0.3)
-            elif style == "vintage":
-                # 빈티지 효과
-                enhancer = ImageEnhance.Color(img)
-                img = enhancer.enhance(0.7)
-                enhancer = ImageEnhance.Contrast(img)
-                img = enhancer.enhance(1.2)
-            
-            return img
-            
+        return img
+        
     except Exception as e:
-        st.warning(f"AI 배경 생성 실패: {e}. 그라데이션으로 대체합니다.")
-        return None
+        st.warning(f"이미지 효과 적용 실패: {e}")
+        return img
+
+def create_advanced_gradient(width, height, theme, card_number):
+    """고급 그라데이션 배경 생성 (카드별 다름)"""
+    
+    # 테마별 다양한 색상 조합
+    theme_colors = {
+        "비즈니스": [
+            [(30, 60, 114), (42, 82, 152)],
+            [(67, 56, 202), (147, 51, 234)],
+            [(30, 58, 138), (59, 130, 246)]
+        ],
+        "자연": [
+            [(34, 197, 94), (22, 163, 74)],
+            [(16, 185, 129), (5, 150, 105)],
+            [(101, 163, 13), (77, 124, 15)]
+        ],
+        "기술": [
+            [(30, 41, 59), (55, 65, 81)],
+            [(15, 23, 42), (30, 41, 59)],
+            [(51, 65, 85), (71, 85, 105)]
+        ]
+    }
+    
+    # 기본 색상
+    default_colors = [
+        [(52, 73, 219), (73, 150, 219)],
+        [(106, 90, 205), (147, 51, 234)],
+        [(46, 204, 113), (39, 174, 96)]
+    ]
+    
+    colors = theme_colors.get(theme, default_colors)
+    start_color, end_color = colors[card_number % len(colors)]
+    
+    img = Image.new('RGB', (width, height))
+    
+    # 대각선 그라데이션 효과
+    for y in range(height):
+        for x in range(width):
+            # 대각선 비율 계산
+            ratio_y = y / height
+            ratio_x = x / width
+            ratio = (ratio_y + ratio_x) / 2
+            
+            # 부드러운 그라데이션
+            ratio = ratio * ratio * (3.0 - 2.0 * ratio)
+            
+            r = int(start_color[0] + (end_color[0] - start_color[0]) * ratio)
+            g = int(start_color[1] + (end_color[1] - start_color[1]) * ratio)
+            b = int(start_color[2] + (end_color[2] - start_color[2]) * ratio)
+            
+            img.putpixel((x, y), (r, g, b))
+    
+    return img
 
 def create_gradient_background(width, height, color_scheme):
     """그라데이션 배경 생성 (AI 이미지 실패시 백업용)"""
@@ -216,22 +447,30 @@ def draw_text_with_shadow(draw, position, text, font, text_color='white', shadow
     draw.text((x, y), text, font=font, fill=text_color)
 
 def create_carousel_card(card_data, card_number, total_cards, background_type="ai", theme="비즈니스", width=1080, height=1920):
-    """캐러셀용 개별 카드 생성"""
+    """캐러셀용 개별 카드 생성 (각 카드별 맞춤 이미지)"""
     
-    # 배경 생성
+    # 카드 내용 조합 (키워드 추출용)
+    card_content = f"{card_data.get('title', '')} {card_data.get('subtitle', '')} {card_data.get('content', '')}"
+    
+    # 배경 생성 (카드별 다른 이미지)
     if background_type == "ai":
-        img = generate_ai_background(theme, width, height, style="blur")
+        img = generate_ai_background_advanced(
+            card_content=card_content,
+            card_number=card_number,
+            theme=theme, 
+            width=width, 
+            height=height, 
+            style="blur"
+        )
         if img is None:
-            # AI 생성 실패시 그라데이션으로 대체
-            img = create_gradient_background(width, height, "다크 그라데이션")
-            # 오버레이 추가
-            overlay = Image.new('RGBA', (width, height), (0, 0, 0, 120))
-            img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+            # AI 생성 실패시 고급 그라데이션으로 대체
+            img = create_advanced_gradient(width, height, theme, card_number)
     else:
-        img = create_gradient_background(width, height, theme)
+        # 그라데이션도 카드별로 다르게
+        img = create_advanced_gradient(width, height, theme, card_number)
     
-    # 어두운 오버레이 추가 (텍스트 가독성 향상)
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 100))
+    # 텍스트 가독성을 위한 어두운 오버레이 추가
+    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 120))
     img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
     
     draw = ImageDraw.Draw(img)
@@ -501,8 +740,8 @@ def main():
         st.info("**크기:** 1080 x 1920px\n**최적화:** Instagram Carousel\n**형식:** PNG (고해상도)")
         
         if background_type == "ai":
-            st.markdown("### 🤖 AI 배경")
-            st.success("**Picsum Photos API** 활용\n실제 서비스 품질의 배경 이미지")
+            st.markdown("### 🤖 AI 배경 시스템")
+            st.success("**다중 API 지원**\n• Pollinations AI (최고품질)\n• 카드별 맞춤 이미지\n• 콘텐츠 기반 키워드 추출")
         
         st.markdown("### 🔤 폰트 정보")
         st.success("**나눔고딕** 자동 다운로드\n한글 완벽 지원 보장!")
